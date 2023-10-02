@@ -1,24 +1,22 @@
 from fastapi import FastAPI, Response, status
 from pydantic import BaseModel
+import couchdb
+
+from credential import Credential
+
+from user_status import UserStatus
 
 import os
-import hashlib
 
 
-users = {"aaa": {"hash": "3e744b9dc39389baf0c5a0660589b8402f3dbb49b89b3e75f2c9355852a3c677", "error_counter" : 0, "status": "ACTIVE"},
-         "bbb": {"hash": "3e744b9dc39389baf0c5a0660589b8402f3dbb49b89b3e75f2c9355852a3c677", "error_counter" : 0, "status": "ACTIVE"},
-         "ccc": {"hash": "3e744b9dc39389baf0c5a0660589b8402f3dbb49b89b3e75f2c9355852a3c677", "error_counter" : 0, "status": "ACTIVE"},
-         "ddd": {"hash": "3e744b9dc39389baf0c5a0660589b8402f3dbb49b89b3e75f2c9355852a3c677", "error_counter" : 0, "status": "ACTIVE"},} 
+DB_USER = 'admin'
+DB_PASSWORD = 'pwd'
+DB_ADDRESS = "localhost:5984"
 
-
-class Credential(BaseModel):
+class CredentialWrapper(BaseModel):
     user: str
     secret: str
 
-    def get_hashed_secret(self):
-        h = hashlib.sha256()
-        h.update(bytes(self.secret, 'utf-8'))
-        return h.hexdigest()
 
 
 app = FastAPI()
@@ -30,7 +28,10 @@ async def root():
 
 
 @app.post("/login")
-async def validate_user(credential: Credential, response: Response):
+def validate_user(credential_wrap: CredentialWrapper, response: Response):
+
+    credential = Credential(credential_wrap.user, credential_wrap.secret)
+    del credential_wrap # remove plain password instance
 
     resp = {}
     if valid_credential(credential):
@@ -41,32 +42,37 @@ async def validate_user(credential: Credential, response: Response):
 
     return resp
 
+
 def valid_credential(cred: Credential) -> bool:
-    # cerca in archivio con user
-    if cred.user not in users: # user not found
-        print("1")
+    
+    couch = couchdb.Server("http://" + DB_USER + ":" + DB_PASSWORD + "@" + DB_ADDRESS)
+    db = couch['users']
+
+    mango_query = {'selector' : {'user' : {'$eq' : cred.user} }}
+    
+    doc_counter = 0
+    for doc in db.find(mango_query):
+        doc_counter += 1
+
+        if doc['status'] != UserStatus.ACTIVE: # user not active
+            print('not active')
+            return False
+        
+        if doc['hash'] != cred.secret: # wrong password
+            print('worng password')
+            doc['error_counter'] += 1
+            if doc['error_counter'] > 3:
+                doc['status'] = UserStatus.BLOCKED
+            db.save(doc)
+            
+            return False
+
+    if doc_counter == 0: # user not found
         return False
     
-    user_rec = users[cred.user]
-
-    if user_rec['status'] != 'ACTIVE': # user not active
-        print("2")
-        return False
-    
-    if user_rec['hash'] != cred.get_hashed_secret(): # wrong password
-        print("3")
-        user_rec['error_counter'] += 1
-        if user_rec['error_counter'] > 3: # block user
-            user_rec['status'] = 'BLOCKED'
-
-        return False
-
-
-    if user_rec['error_counter'] != 0: # reset counter
-        user_rec['error_counter'] = 0
+    # all correct
+    if doc['error_counter'] > 0:
+        doc['error_counter'] = 0
+        db.save(doc)
 
     return True
-    
-
-    
-

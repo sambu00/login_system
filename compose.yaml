@@ -1,0 +1,18 @@
+services:
+#  app:
+#    image: login_app
+#    command: sh -c "uvicorn app.main:app --host 0.0.0.0 --port 80"
+#    ports:  8080:80
+
+  couchdb:
+    image: couchdb
+    volumes: 
+      - couch_db_vol:/opt/couchdb/data
+    ports: 
+      - 5984:5984
+    environment:
+      COUCHDB_USER: admin
+      COUCHDB_PASSWORD: pwd
+
+volumes:
+   couch_db_vol:
