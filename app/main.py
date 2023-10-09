@@ -1,8 +1,8 @@
 import os
 from datetime import datetime, timedelta
 
-from credential import Credential
-from user_status import UserStatus
+from app.credential import Credential
+from app.user_status import UserStatus
 
 from fastapi import FastAPI, Response, status
 from pydantic import BaseModel
